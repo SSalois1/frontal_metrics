@@ -8,13 +8,14 @@ output: html_document
 ## First approach 
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE )
 library(raster)
 library(rasterKernelEstimates)
 library(ncdf4)
 library(raster)
 library(wesanderson)
 library(ggplot2)
+library(stars)
 ```
 
 ## Kernel Based Estimates on in-Memory Raster Images
@@ -62,6 +63,7 @@ plot(rLocalKDE1$var)
 
 ```{r}
 # Pull in netcdf
+setwd(here::here('nc_files/dd'))
 nc <- nc_open('DD_20180402_20180408-AT-R2018-NESGRID-NWA_SUBSET-PXY_1_1413572-GRAD_SST-BOA-D3_DAT.nc')
 # Extract lat, lon, grad, x, y
 lon <- ncvar_get(nc, "longitude")
@@ -70,7 +72,8 @@ grad <- ncvar_get(nc, attributes(nc$var)$names[2])
 x <- ncvar_get(nc, attributes(nc$var)$names[3])
 y <- ncvar_get(nc, attributes(nc$var)$names[4])
 # these are old files so need to replace fillvalue with NA - Kim has updated
-# the newer files with _Fillvalue so that R can recognize it and does this automatically 
+# the newer files with _Fillvalue so that R can recognize it and does this 
+# utomatically 
 fillvalue <- ncatt_get(nc, 'GRAD_SST', "_fillvalue")
 grad[grad == fillvalue$value] <- NA
 x[x == fillvalue$value] <- NA
@@ -95,23 +98,43 @@ gradsst_spdf <- as(r, "SpatialPixelsDataFrame")
 gradsst_df <- as.data.frame(gradsst_spdf)
 colnames(gradsst_df) <- c("value", "x", "y")
 # Set color palette
-pal <- wes_palette("Zissou1", 20, type = "continuous")
+wes_pal <- wes_palette("Zissou1", 20, type = "continuous")
 #show_col(pal)
+#' Fancy colors
+spec_pal <- hcl.colors(25, "spectral", rev = TRUE)
 # Plot
 ggplot() + # sst
   geom_tile(data = gradsst_df, aes(x=x, y=y, fill = value)) +
-  scale_fill_gradientn(colours = pal) +
+  scale_fill_gradientn(colours = wes_pal) +
   theme_bw()
+ggplot() + # sst
+  geom_tile(data = gradsst_df, aes(x=x, y=y, fill = value)) +
+  scale_fill_gradientn(colours = spec_pal) +
+  theme_bw()
+# Plot with stars package - 
+s <- st_as_stars(r)
+
+#print(s)
+
+#plot(s, col = spec_pal, main = 'stars')
+
+
+
 ```
 
 
 ## Gradients after frontal threshold has been applied
 
+**Note: this original was computed before changing the threshold. We determined
+that 0.4 was too high in our region (see test_frontal_thresholds.R, 
+plot_thresholds.R, plot_resolution_and_thresholds.R, and results folder).
+
+
 ```{r}
 
 # Create frontal array (via setting setting all values < threshold to 0)
 front <- grad
-threshold = 0.4 # threshold for classifying front
+threshold = 0.15 # threshold for classifying front old was (0.4)
 front[front < threshold] <- 0 # set all values < thresh == 0 
 front5 <- (front[,,5])
 front5 <- t(front5)
@@ -610,6 +633,7 @@ par(mfrow=c(2,2))
 
 ### Loop to do all files 
 
+
 ```{r}
 # weekly sst anomalies #
 path = '/nadata/PROJECTS/IDL_PROJECTS/ILLEX_INDICATORS/R_SCRIPTS/SST_ANOM/NETCDFS/'
@@ -674,7 +698,10 @@ image(ww_fnhood3)
 
 
 ## Different approach using a package with more functionality 
-The mmand R package provides tools for performing mathematical morphology operations, such as erosion and dilation, or finding connected components, on arrays of arbitrary dimensionality. It can also smooth and resample arrays, obtaining values between pixel centres or scaling the image up or down wholesale.
+The mmand R package provides tools for performing mathematical morphology 
+operations, such as erosion and dilation, or finding connected components,
+on arrays of arbitrary dimensionality. It can also smooth and resample arrays, 
+obtaining values between pixel centres or scaling the image up or down wholesale.
 
 All of these operations are underpinned by three powerful functions, which perform different types of kernel-based operations: morph(), components() and resample().
 ```{r}
