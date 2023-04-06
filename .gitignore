@@ -13,8 +13,9 @@
 .Rproj.user/
 
 # local folders
-#/nc_files
-#/results
+/nc_files
+/results
+/rasters
 #/shape_files
 
 # confidental data files
