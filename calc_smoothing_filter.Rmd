@@ -16,6 +16,8 @@ library(raster)
 library(wesanderson)
 library(ggplot2)
 library(stars)
+library(RColorBrewer)
+library(terra)
 ```
 
 ## Kernel Based Estimates on in-Memory Raster Images
@@ -61,10 +63,19 @@ plot(rLocalKDE1$var)
 
 ## Frontal data 
 
+Pulling out the lines that call in the netcdf - they work in a regular
+script but not here in markdown - odd.
 ```{r}
 # Pull in netcdf
-setwd(here::here('nc_files/dd'))
+setwd(here::here('nc_files/dd/'))
 nc <- nc_open('DD_20180402_20180408-AT-R2018-NESGRID-NWA_SUBSET-PXY_1_1413572-GRAD_SST-BOA-D3_DAT.nc')
+nc2 <- nc_open('DD_20170701_20170731-AT-R2018-NESGRID-GRAD_SST-BOA-STACKED.nc')
+
+```
+
+
+```{r}
+
 # Extract lat, lon, grad, x, y
 lon <- ncvar_get(nc, "longitude")
 lat <- ncvar_get(nc, "latitude", verbose = F)
@@ -98,6 +109,7 @@ gradsst_spdf <- as(r, "SpatialPixelsDataFrame")
 gradsst_df <- as.data.frame(gradsst_spdf)
 colnames(gradsst_df) <- c("value", "x", "y")
 # Set color palette
+divpal = rev(brewer.pal(10,'RdYlBu'))
 wes_pal <- wes_palette("Zissou1", 20, type = "continuous")
 #show_col(pal)
 #' Fancy colors
@@ -116,7 +128,7 @@ s <- st_as_stars(r)
 
 #print(s)
 
-#plot(s, col = spec_pal, main = 'stars')
+plot(s, col = spec_pal, main = 'stars')
 
 
 
@@ -143,7 +155,8 @@ rf5 = raster(front5, xmn = min(lon), xmx = max(lon),
            ymn = min(lat), ymx = max(lat),
            crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
 rf5 = flip(rf5,2)  
-plot(rf5)
+plot(rf5, col = spec_pal)
+plot(rf5, col = divpal)
 
 ```
 
@@ -154,6 +167,7 @@ This uses the weight matrix from first raster
 library(patchwork)
 # Day 5
 # create a weight matrix
+# r here is grad_mag, rf5 is the front (after threshold)
 W <- raster::focalWeight(rf5,c(1,0.04),type='Gauss')
 # calculate the weighted local mean and variance
 rLocalKDE2 <- rasterLocalMoments(rf5,W)
@@ -161,11 +175,11 @@ rLocalKDE2 <- rasterLocalMoments(rf5,W)
 # plot(rf4)
 # dev.off()
 # plot original image
-plot(rf5, main = 'Original')
+plot(rf5, main = 'Original', col = spec_pal)
 # plot the weighted mean
-plot(rLocalKDE2$mu, main = 'Mu')
+plot(rLocalKDE2$mu, main = 'Mu', col = spec_pal)
 # plot the weighted variance
-plot(rLocalKDE2$var, main = 'Var')
+plot(rLocalKDE2$var, main = 'Var', col = spec_pal)
 # Day 4
 # run.time <- proc.time()
 # rLocalKDE2 <- rasterLocalMoments(rf4,W)
@@ -217,12 +231,45 @@ frontal threshold actually reduces the amount of valid frontal pixels
 in th neighborhood and that the correct approach is to run the filter on the fvalid data - after the threshold has been applied. 
 
 
+***
+Some resources on focal statistics: 
 
+[General focal statistics explanation](https://pro.arcgis.com/en/pro-app/latest/tool-reference/spatial-analyst/how-focal-statistics-works.htm#ESRI_SECTION1_CCE941CAD2A4457C8DC706757A832D07)
+[Terra focal](https://arc2r.github.io/book/Neighborhood.html)
 
+Second attempt per Chris Haak's suggestion of using focal mean instead of 
+threshold would mean just running the first step from above and not using any
+threshold after
 
+```{r}
+plot(r, col=spec_pal, main = 'Just grad_mag')
+rLocalKDEgradmag.org <- rasterLocalMoments(r,W2)
+plot(rLocalKDEgradmag.org$mu, main = 'Mu', col=spec_pal) # gradient_mag
 
+```
 
+With raster: 
 
+```{r}
+#focal(grad[[1]],fun=mean,w=m)
+
+grad <- t(grad)
+b = brick(grad)
+b = flip(t(b),2)
+f1 <- raster::focal(b[[5]], w = matrix(1, nrow = 3, ncol = 3), fun = sum)
+plot(f1, main = "Raster after applying the focal function:raster package",
+     cex.main = 1, col = spec_pal)
+
+```
+
+With Terra: 
+
+```{r}
+r_spat <- as(r, "SpatRaster")
+f2 <- terra::focal(r_spat, w = 3, fun = "sum")
+plot(f2, main = "Raster after applying the focal function - terra package", cex.main = 1)
+
+```
 
 
 ## Metrics: 
@@ -273,6 +320,20 @@ plot(gdens$mu)
 plot(gdens.0$mu)
 
 ```
+
+
+In the example where we dont have fronts defined ....
+
+```{r}
+weighted_grad <- rLocalKDEgradmag.org$mu
+
+
+
+
+
+```
+
+
 
 
 
