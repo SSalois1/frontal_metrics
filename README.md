@@ -8,7 +8,7 @@ The goal of this work is to isolate prominent region-specific fronts and develop
 
 
 ## Repository contents
-The purpose of this repository is to assist in the collaborative development of frontal algorithms via the shared scripts, remote sensing data, and project management boards for the Frontal Indicators project.
+The purpose of this repository is to assist in the collaborative development of frontal algorithms and includes scripts, remote sensing data, and project management boards for the Frontal Indicators project.
 
 + The [google drive folder](https://drive.google.com/drive/folders/1PCwWw4f-qIiPlEBZ1WLu1aqhQxpm30l) associated with this Frontal Indicators repository  
 
