@@ -1,0 +1,788 @@
+---
+title: "Comparing threshold methods"
+author: "Sarah Salois"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Setting up
+
+```{r }
+library(raster)
+library(RColorBrewer)
+library(ncdf4)
+library(wesanderson)
+library(terra)
+
+## Functions
+fx.sum.greater.than.zero <- function(x) sum(na.omit(x > 0))
+fx.sum <- function(x) sum(na.omit(x))
+fx.sumsqrs <- function(x) {sum((na.omit(x) - mean(na.omit(x)))^2)}
+# create an if-else reclassify statement
+rc <- function(x1) {
+  ifelse(x1 <= pers_thresh, 1, 
+         ifelse((x1 > pers_thresh), 0))
+}
+## Color Palette
+# Continuous palette for displaying smoother images
+cols = rev(brewer.pal(11,'RdYlBu'))
+pal <- colorRampPalette(cols)(30)
+
+## Getting files
+## week 20 and 42 are good weeks in modis 
+path = here::here('nc_files/ww')
+files2 <- list.files(path = path, pattern = glob2rx('WW_2021*.nc'),
+                    full.names = TRUE)
+# The modis files (WW_) do not have x,y component - just full metrics, 
+# so need to select the W_ for now, which is the 7 daily files for a given week
+files <- list.files(path = path, pattern = glob2rx('W_202120*.nc'), 
+                    full.names = TRUE)
+```
+
+## Data
+
+Pulling in the data 
+
+### Modis
+```{r}
+## Modis
+
+nc <- nc_open(files[1])  # Open files
+lat <- ncvar_get(nc, 'latitude')
+lon <- ncvar_get(nc, 'longitude')
+grad.m <- ncvar_get(nc, attributes(nc$var)$names[2])
+x.m <- ncvar_get(nc, attributes(nc$var)$names[3])
+y.m <- ncvar_get(nc, attributes(nc$var)$names[4])
+nc_close(nc)
+rm(nc)
+```
+
+
+### MUR
+```{r}
+## Mur
+nc <- nc_open(files[1])  # Open files
+lat <- ncvar_get(nc, 'latitude')
+lon <- ncvar_get(nc, 'longitude')
+grad.mur <- ncvar_get(nc, attributes(nc$var)$names[1])
+x.mur <- ncvar_get(nc, attributes(nc$var)$names[2])
+y.mur <- ncvar_get(nc, attributes(nc$var)$names[3])
+nc_close(nc)
+rm(nc)
+```
+
+
+## Stacking rasters 
+
+### Modis 
+
+```{r}
+## Modis
+ra.grad.m <- list()
+ra.xcomp.m <- list()
+ra.ycomp.m <- list()
+ra.front.m <- list()
+threshold = 0.18 # this is for static threshold method, not focal method
+# for (i in 1:52){ will need when fixed
+for (i in 1:7){
+  tmp.g <- (grad.m[,,i]) 
+  tmp.gt <- t(tmp.g) 
+  r.g = raster(tmp.gt, xmn = min(lon), xmx = max(lon), 
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  r.g = raster::flip(r.g,2)  
+  #plot(r.g, col = pal)
+  assign(paste('r.g.',i, sep = ''), r.g)
+  ra.grad.m[[i]] <- get(paste0('r.g.',i))
+  tmp.x <- (x.m[,,i]) 
+  tmp.xt <- t(tmp.x)
+  r.x = raster(tmp.xt, xmn = min(lon), xmx = max(lon), 
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  r.x = raster::flip(r.x,2)  
+  assign(paste('r.x.',i, sep = ''), r.x)
+  ra.xcomp.m[[i]] <- get(paste0('r.x.',i))
+  tmp.y <- (y.m[,,i]) 
+  tmp.yt <- t(tmp.y)
+  r.y = raster(tmp.yt, xmn = min(lon), xmx = max(lon), 
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  r.y = raster::flip(r.y,2)  
+  assign(paste('r.y.',i, sep = ''), r.y)
+  ra.ycomp.m[[i]] <- get(paste0('r.y.',i))
+  # Change this to reflect new front detection method
+  tmp.f <- (grad.m[,,i])
+  tmp.f[tmp.f < threshold] <- 0
+  tmp.ft <- t(tmp.f)
+  r.f = raster(tmp.ft, xmn = min(lon), xmx = max(lon),
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  r.f = raster::flip(r.f,2)
+  plot(r.f, col = pal)
+  assign(paste('r.f.',i, sep = ''), r.f)
+  ra.front.m[[i]] <- get(paste0('r.f.',i))
+}
+
+
+```
+
+
+
+
+Trying focal frontal threshold 
+```{r}
+# Modis
+# --- need to convert all to a spat-raster --- # 
+sr.grad.m <- list()
+sr.xcomp.m <- list()
+sr.ycomp.m <- list()
+sr.focal.front.m <- list()
+# for (i in 1:52){ will need when fixed
+for (i in 1:7){
+  # gradient magnitude
+  tmp.g <- (grad.m[,,i])
+  tmp.gt <- t(tmp.g)
+  r.g = rast(tmp.gt, crs = "EPSG:4326")
+  r.g = terra::flip(r.g, direction ='v')
+  plot(r.g, col = pal, main = 'grad_sst')
+  assign(paste('r.g.',i, sep = ''), r.g)
+  sr.grad.m[[i]] <- get(paste0('r.g.',i)) # list all rasters to stack after
+  # x component
+  tmp.x <- (x.m[,,i])
+  tmp.xt <- t(tmp.x)
+  r.x = rast(tmp.xt, crs = "EPSG:4326")
+  r.x = terra::flip(r.x, direction ='v')
+  assign(paste('r.x.',i, sep = ''), r.x)
+  sr.xcomp.m[[i]] <- get(paste0('r.x.',i))
+  # y component
+  tmp.y <- (y.m[,,i])
+  tmp.yt <- t(tmp.y)
+  r.y = rast(tmp.yt, crs = "EPSG:4326")
+  r.y = terra::flip(r.y, direction ='v')
+  assign(paste('r.y.',i, sep = ''), r.y)
+  sr.ycomp.m[[i]] <- get(paste0('r.y.',i))
+ # This reflects new front detection method
+  tmp.f <- (grad.m[,,i])
+  tmp.ft <- t(tmp.f)
+  r.f <- rast(tmp.ft, crs = "EPSG:4326") 
+  r.f <- terra::flip(r.f, direction ='v')  
+  tmp.foc <- terra::focal(r.f, w = 3, fun = 'mean')
+  r.f[r.f <= tmp.foc] <- 0
+  plot(r.f, col = pal, main = 'fronts')
+  assign(paste('r.f.',i, sep = ''), r.f)
+  sr.focal.front.m[[i]] <- get(paste0('r.f.',i))
+}
+
+
+
+# ## S4 method for signature 'SpatRaster'
+# spat.rast.grad <- rast(grad.m) 
+# tmp.spat.rast.gradt <- t(spat.rast.grad) 
+# tmp.spat.rast.gradtf = terra::flip(tmp.spat.rast.gradt, direction ='v')  
+# tmp.foc <- terra::focal(tmp.spat.rast.gradtf, w = 3, fun = 'mean')
+# plot(tmp.foc, col = pal)
+# 
+# # maybe try this on one raster instead of all layers
+#  # Change this to reflect new front detection method
+#   tmp.f <- (grad.m[,,i])
+#   tmp.ft <- t(tmp.f)
+#   r.f <- rast(tmp.ft) 
+#   r.f <- terra::flip(r.f, direction ='v')  
+#   tmp.foc <- terra::focal(r.f, w = 3, fun = 'mean')
+#   r.f <- r.f[r.f < tmp.foc] <- 0
+#   assign(paste('r.f.',i, sep = ''), r.f)
+#   r.focal.front.m[[i]] <- get(paste0('r.f.',i))
+# rm(list = grep("r.g.", ls(), value = TRUE))
+# rm(list = grep("r.x.", ls(), value = TRUE))
+# rm(list = grep("r.y.", ls(), value = TRUE))
+# rm(list = grep("r.f.", ls(), value = TRUE))
+# rm(list = grep('tmp.', ls(), value = TRUE))
+
+```
+
+
+
+### MUR
+
+```{r}
+## MUR
+#threshold = 0.18 # threshold for classifying front at 2km (0.15-0.18) 0.12
+threshold = 0.06 # threshold for classifying front (0.06-)
+r.grad.mur <- list()
+r.xcomp.mur <- list()
+r.ycomp.mur <- list()
+r.front.mur <- list()
+for (i in 1:52){
+  tmp.g <- (grad.mur[,,i]) 
+  tmp.gt <- t(tmp.g) 
+  r.g = raster(tmp.gt, xmn = min(lon), xmx = max(lon), 
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  r.g = raster::flip(r.g,2)  
+  #plot(r.g, col = pal)
+  assign(paste('r.g.',i, sep = ''), r.g)
+  r.grad.mur[[i]] <- get(paste0('r.g.',i))
+  tmp.x <- (x.mur[,,i]) 
+  tmp.xt <- t(tmp.x)
+  r.x = raster(tmp.xt, xmn = min(lon), xmx = max(lon), 
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  r.x = raster::flip(r.x,2)  
+  assign(paste('r.x.',i, sep = ''), r.x)
+  r.xcomp.mur[[i]] <- get(paste0('r.x.',i))
+  tmp.y <- (y.mur[,,i]) 
+  tmp.yt <- t(tmp.y)
+  r.y = raster(tmp.yt, xmn = min(lon), xmx = max(lon), 
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  r.y = raster::flip(r.y,2)  
+  assign(paste('r.y.',i, sep = ''), r.y)
+  r.ycomp.mur[[i]] <- get(paste0('r.y.',i))
+  ## Change this to reflect new front detection method
+  tmp.f <- (grad.mur[,,i])
+  tmp.f[tmp.f < threshold] <- 0
+  tmp.ft <- t(tmp.f)
+  r.f = raster(tmp.ft, xmn = min(lon), xmx = max(lon),
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  r.f = raster::flip(r.f,2)
+  assign(paste('r.f.',i, sep = ''), r.f)
+  r.front.mur[[i]] <- get(paste0('r.f.',i))
+}
+
+```
+
+
+## Stacking 
+First need to stack the images by temporal resolution of interest
+
+```{r}
+
+## this works for raster
+#stack.rast <- stack(r.grad.m)
+
+# -- stack static threshold -- # 
+grad.stack.s <- stack(ra.grad.m)
+front.stack.s <- stack(ra.front.m)
+x.stack.s <- stack(ra.xcomp.m)
+y.stack.s <- stack(ra.ycomp.m)
+
+
+## this works for terra
+# many_rasters <- list(x,x)
+# stack.rast <- rast(many_rasters)
+
+# -- focal threshold -- # 
+
+grad.stack.f <- terra::rast(sr.grad.m)
+front.stack.f <- terra::rast(sr.focal.front.m)
+x.stack.f <- terra::rast(sr.xcomp.m)
+y.stack.f <- terra::rast(sr.ycomp.m)
+
+
+
+```
+
+```{r}
+# Just cleaning up - remove the extra stacks
+
+rm(list = grep("r.g.", ls(), value = TRUE))
+rm(list = grep("r.x.", ls(), value = TRUE))
+rm(list = grep("r.y.", ls(), value = TRUE))
+rm(list = grep("r.f.", ls(), value = TRUE))
+rm(list = grep('tmp.', ls(), value = TRUE))
+
+
+rm(ra.grad.m)
+rm(ra.front.m)
+rm(ra.xcomp.m)
+rm(ra.ycomp.m)
+
+```
+
+
+
+## Calculate metrics 
+
+### Modis
+
+#### Static threshold for frontal detection
+```{r}
+# Metrics
+# Select a single layer (week) to test metric calculations
+# sgspr <- r.grad.mur[[21]]
+# sfspr <- r.front.m[[21]]
+# sxspr <- r.xcomp.m[[21]]
+# syspr <- r.ycomp.m[[21]]
+
+# -- stack -- # 
+# sgspr <- stack(ra.grad.m)
+# sfspr <- stack(ra.front.m)
+# sxspr <- stack(ra.xcomp.m)
+# syspr <- stack(ra.ycomp.m)
+sgspr <- grad.stack.s
+sfspr <- front.stack.s
+sxspr <- x.stack.s
+syspr <- y.stack.s
+
+
+# Set threshold for low temporal variability 
+range(na.omit(sfspr))
+range(na.omit(sgspr@data@values))
+pers_thresh <- 0.08
+## Initialize these
+r1 = sxspr # stack of x
+r3 = sfspr # stack of fronts
+r3[r3 <= 0] <- NA # do I need to do this? - ys for mask*
+plot(r3, col = pal,  main = 'fronts NA')
+# remove from r1(stack of x) all values that are NA in r3(stack of fronts)
+r4 <- raster::mask(r1, r3)
+plot(r4, col = pal, main = 'x based on grad mag')
+r5 = syspr # stack of y
+r6 <- raster::mask(r5, r3)
+plot(r6, col = pal, main = 'y based on grad mag')
+## Base params
+fvalid <- raster::calc(sfspr, fx.sum.greater.than.zero)
+fvalid.test <- calc(r3, fx.sum.greater.than.zero)
+m_sum <- calc(sfspr, fx.sum)
+fclear_m <- calc(sgspr, fx.sum.greater.than.zero)
+# x_var
+x_based_on_mag <- r4
+x_sum <- calc(x_based_on_mag, fx.sum)
+x_sumsqr <- calc(x_based_on_mag, fx.sumsqrs)
+# y_var
+y_based_on_mag <- r6
+y_sum <- calc(y_based_on_mag, fx.sum)
+y_sumsqr <- calc(y_based_on_mag, fx.sumsqrs)
+# Metrics
+fmean = (sqrt((x_sum/fvalid)^2 + (y_sum/fvalid)^2))
+fvar = (x_sumsqr + y_sumsqr)/fvalid
+fsd = sqrt(fvar)
+fcv = fsd/fmean
+fprob = fvalid/fclear_m
+fintst = fmean * fprob
+fpers <- overlay(fsd, fun=rc)
+fpersprob = fpers * fprob
+```
+
+Plotting metrics using static threshold
+
+```{r}
+
+pdf(file = 'metrics_static_front_wk_20_2021.pdf', width = 10, height = 6)
+par(mfrow = c(2,4), oma = c(1,1,1,1))
+plot(fvalid, main = 'Fvalid', col= pal)
+plot(fclear_m, main = 'Fclear', col= pal)
+plot(fmean, main = 'Frontal Mean', col= pal)
+plot(fprob, main = 'Frontal Probability', col= pal)
+plot(fvar, main = 'Frontal Variance', col= pal)
+plot(fsd, main = 'Frontal Standard Deviation', col= pal)
+plot(fcv, main = 'Frontal CV', col= pal)
+plot(fintst, main = 'Frontal Intensity', col= pal)
+plot(fpers, main = 'Frontal Persistence', col= pal)
+plot(fpersprob, main = 'Persistence Probability', col = pal)
+dev.off()
+
+
+```
+
+
+#### Self detecting threshold for frontal detection using moving average
+
+Trying this with terra package: 
+
+```{r}
+# Metrics 
+# Select a single layer (week) to test metric calculations
+# sgspr <- r.grad.mur[[21]]
+# sfspr <- r.front.m[[21]]
+# sxspr <- r.xcomp.m[[21]]
+# syspr <- r.ycomp.m[[21]]
+
+# -- stack, note this is different for terra:spatrasters -- # 
+sgspr <- terra::rast(sr.grad.m[1:7]) # this only gets 2 layers
+sfspr <- terra::rast(sr.focal.front.m[1:7])
+sxspr <- terra::rast(sr.xcomp.m[1:7])
+syspr <- terra::rast(sr.ycomp.m[1:7])
+
+sgspr <- grad.stack.f
+sfspr <- front.stack.f
+sxspr <- x.stack.f
+syspr <- y.stack.f
+
+
+# Set threshold for low temporal variability 
+range(na.omit(sfspr))
+pers_thresh <- 0.08
+## Initialize these
+r1 = sxspr # stack of x
+r3 = sfspr # stack of fronts
+# r3[r3 <= 0] <- NA # do I need to do this? 
+plot(r3, col = pal,  main = 'fronts NA')
+#plot(sfspr, col = pal,  main = 'Fronts')
+# r4 <- terra::mask(r1, r3)
+# r4.t <- terra::mask(r3, r1)
+# plot(r4, col = pal, main = 'x based on grad mag') # selects values of x only if pixel indicated as frontal from grad_mag
+
+# rcx1 <- classify(r1, r3)
+# test = terra::extract(r1[[1]], r3[[1]], exact=TRUE)
+# test = terra::extract(r1, r3, exact=TRUE)
+# s3 <- ifel(is.na(r1), NA, r3)
+
+#   r.f[r.f <= tmp.foc] <- 0
+# This is how I determined a front, if pixel in frontal raster was less than 
+# or equal to tmp.foc, it received a zero (tmp.foc is the focal window)
+r.f[r.f <= tmp.foc] <- 0
+# Next, I used an ifelse statement to create a new spat raster where 
+# if a pixel in the stack of fronts == 0, then it was assigned an NA 
+# otherwise it received the coincident value from stack of x's
+foc.alt <- ifel(r3==0, NA, r3) # setting non-frontal values to NA 
+test.2 <- ifel(r3==0, NA, r1) # setting non-frontal values to 0 .. see notes 
+# about which is better to do
+plot(test.2, col = pal)
+plot(r3, col = pal,  main = 'fronts NA')
+# remove from r1(stack of x) all values that are NA in r3(stack of fronts)
+test.2.mask <- terra::mask(r1, foc.alt)
+# compare the two approaches, may be easier to assign NA to r.f upstream
+plot(test.2[[3]])
+plot(test.2.mask[[3]])
+# mask removes all values from one layer that are NA in another layer, 
+# cover combines two layers by taking the values of the first layer except where 
+# these are NA
+# They are the same, so just do the test.2 approach its more straightforward for 
+# now
+r4 <- ifel(r3==0, NA, r1) # x-based on frontal pixels 
+
+# plot(r4, col = pal, main = 'x based on grad mag')
+# plot(r3, col = pal, main = 'fronts')
+r5 = syspr # stack of y
+r6 <- ifel(r3==0, NA, r5) # y-based on frontal pixels 
+#plot(r6, col = pal, main = 'y based on grad mag')
+## Base params
+fvalid <- terra::app(sfspr, fx.sum.greater.than.zero)# calc with raster package
+m_sum <- terra::app(sfspr, fx.sum)
+fclear_m <- terra::app(sgspr, fx.sum.greater.than.zero)
+# x_var
+x_based_on_mag <- r4
+x_sum <- terra::app(x_based_on_mag, fx.sum)
+x_sumsqr <- terra::app(x_based_on_mag, fx.sumsqrs)
+# y_var
+y_based_on_mag <- r6
+y_sum <- terra::app(y_based_on_mag, fx.sum)
+y_sumsqr <- terra::app(y_based_on_mag, fx.sumsqrs)
+# Metrics
+fmean = (sqrt((x_sum/fvalid)^2 + (y_sum/fvalid)^2))
+fvar = (x_sumsqr + y_sumsqr)/fvalid
+fsd = sqrt(fvar)
+fcv = fsd/fmean
+fprob = fvalid/fclear_m
+fintst = fmean * fprob
+fpers <- terra::ifel(fsd <= pers_thresh, 1, 0)
+fpersprob = fpers * fprob
+
+
+
+```
+
+
+Plotting metrics using focal weighted threshold
+
+```{r}
+
+pdf(file = 'metrics_focal_front_wk_20_2021.pdf', width = 10, height = 6)
+par(mfrow = c(2,4), oma = c(1,1,1,1))
+plot(fvalid, main = 'Fvalid', col= pal)
+plot(fclear_m, main = 'Fclear', col= pal)
+plot(fmean, main = 'Frontal Mean', col= pal)
+plot(fprob, main = 'Frontal Probability', col= pal)
+plot(fvar, main = 'Frontal Variance', col= pal)
+plot(fsd, main = 'Frontal Standard Deviation', col= pal)
+plot(fcv, main = 'Frontal CV', col= pal)
+plot(fintst, main = 'Frontal Intensity', col= pal)
+plot(fpers, main = 'Frontal Persistence', col= pal)
+plot(fpersprob, main = 'Persistence Probability', col = pal)
+dev.off()
+
+
+```
+
+Trying this with raster package: 
+
+
+```{r}
+
+## Modis
+ra.grad.m <- list()
+ra.xcomp.m <- list()
+ra.ycomp.m <- list()
+ra.front.m <- list()
+#threshold = 0.18 # this is for static threshold method, not focal method
+# for (i in 1:52){ will need when fixed
+for (i in 1:7){
+  tmp.g <- (grad.m[,,i]) 
+  tmp.gt <- t(tmp.g) 
+  r.g = raster(tmp.gt, xmn = min(lon), xmx = max(lon), 
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  r.g = raster::flip(r.g,2)  
+  #plot(r.g, col = pal)
+  assign(paste('r.g.',i, sep = ''), r.g)
+  ra.grad.m[[i]] <- get(paste0('r.g.',i))
+  tmp.x <- (x.m[,,i]) 
+  tmp.xt <- t(tmp.x)
+  r.x = raster(tmp.xt, xmn = min(lon), xmx = max(lon), 
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  r.x = raster::flip(r.x,2)  
+  assign(paste('r.x.',i, sep = ''), r.x)
+  ra.xcomp.m[[i]] <- get(paste0('r.x.',i))
+  tmp.y <- (y.m[,,i]) 
+  tmp.yt <- t(tmp.y)
+  r.y = raster(tmp.yt, xmn = min(lon), xmx = max(lon), 
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  r.y = raster::flip(r.y,2)  
+  assign(paste('r.y.',i, sep = ''), r.y)
+  ra.ycomp.m[[i]] <- get(paste0('r.y.',i))
+  # Change this to reflect new front detection method
+  # tmp.f <- (grad.m[,,i])
+  # tmp.f[tmp.f < threshold] <- 0
+  # tmp.ft <- t(tmp.f)
+  # r.f = raster(tmp.ft, xmn = min(lon), xmx = max(lon),
+  #              ymn = min(lat), ymx = max(lat),
+  #              crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  # r.f = raster::flip(r.f,2)
+  # plot(r.f, col = pal)
+  # assign(paste('r.f.',i, sep = ''), r.f)
+  # ra.front.m[[i]] <- get(paste0('r.f.',i))
+}
+
+
+ra.front.m <- list()
+for (i in 1:7){
+ # This reflects new front detection method
+  tmp.f <- (grad.m[,,i])
+  tmp.ft <- t(tmp.f)
+  r.f = raster(tmp.ft, xmn = min(lon), xmx = max(lon),
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  #r.f.bt = raster::flip(r.f,2)
+  r.f = raster::flip(r.f,2)
+  plot(r.f)
+  #plot(r.f.bt, col = pal)
+  r.f.og <- r.f
+  tmp.foc <- raster::focal(r.f, fun=mean, 
+                           na.rm=TRUE,    w=matrix(1/9,nrow=3,ncol=3))
+  
+  r.f[r.f >= tmp.foc] <- r.f
+  id_raster_sub <- id_raster[[1]]>2
+  catch_raster_sub <- mask(catch_raster,id_raster_sub/id_raster_sub)
+
+  assign(paste('r.f.',i, sep = ''), r.f)
+  ra.front.m[[i]] <- get(paste0('r.f.',i))
+  
+}
+
+front.stack.f.rasterpackage <- stack(ra.front.m)
+  r.f.t <- ifelse(r.f <= tmp.foc, 0,r.f)
+  r.f.t <- r.f <= tmp.foc
+# remove from r1(stack of x) all values that are NA in r3(stack of fronts)
+r.f.mask <- raster::mask(r.f,tmp.foc)
+foc.df <- as.data.frame(tmp.foc, xy = TRUE) # this works with Raster* objects as well
+foc.df$layer[is.nan(foc.df$layer)]<-NA
+front.df <- as.data.frame(r.f, xy = TRUE) # this works with Raster* objects as well
+locs.rm.front <- which(na.omit(front.df$layer) >= na.omit(foc.df$layer))
+front.df.foc <- front.df[locs.rm.front,]
+rrr = rasterFromXYZ(front.df.foc)  
+r.f.subs <- subs(r.f,foc.df)
+
+
+```
+
+visualizing to see if the method worked
+
+```{r}
+
+plot(tmp.foc, main = 'focal')
+plot(r.f.bt, main = 'fronts before thresh')
+plot(r.f, main = 'fronts after thresh')
+#plot(r.f.t, main = 'fronts after thresh v2')
+plot(r.f.mask, main = 'r.f.mask')
+plot(rrr, main = 'after')
+```
+
+
+
+
+
+There is an issue with fvalid - it looks the same as fclear, that is likely bc
+the frontal threshold based on focal window did not work ? 
+
+
+```{r}
+# Metrics
+
+# -- stack -- # 
+sfspr <- front.stack.f.rasterpackage
+
+# Set threshold for low temporal variability 
+range(na.omit(sfspr))
+range(na.omit(sgspr@data@values))
+pers_thresh <- 0.08
+## Initialize these
+r1 = sxspr # stack of x
+r3 = sfspr # stack of fronts
+r3[r3 <= 0] <- NA # do I need to do this? - yes for mask*
+plot(r3, col = pal,  main = 'fronts NA')
+# remove from r1(stack of x) all values that are NA in r3(stack of fronts)
+r4 <- raster::mask(r1, r3)
+plot(r4, col = pal, main = 'x based on grad mag')
+r5 = syspr # stack of y
+r6 <- raster::mask(r5, r3)
+plot(r6, col = pal, main = 'y based on grad mag')
+## Base params
+fvalid <- calc(sfspr, fx.sum.greater.than.zero)
+m_sum <- calc(sfspr, fx.sum)
+fclear_m <- calc(sgspr, fx.sum.greater.than.zero)
+# x_var
+x_based_on_mag <- r4
+x_sum <- calc(x_based_on_mag, fx.sum)
+x_sumsqr <- calc(x_based_on_mag, fx.sumsqrs)
+# y_var
+y_based_on_mag <- r6
+y_sum <- calc(y_based_on_mag, fx.sum)
+y_sumsqr <- calc(y_based_on_mag, fx.sumsqrs)
+# Metrics
+fmean = (sqrt((x_sum/fvalid)^2 + (y_sum/fvalid)^2))
+fvar = (x_sumsqr + y_sumsqr)/fvalid
+fsd = sqrt(fvar)
+fcv = fsd/fmean
+fprob = fvalid/fclear_m
+fintst = fmean * fprob
+fpers <- overlay(fsd, fun=rc)
+fpersprob = fpers * fprob
+```
+
+Plotting metrics using focal threshold with raster package instead of terra
+
+```{r}
+
+pdf(file = 'metrics_focal_front_wk_20_2021_raster_package.pdf',
+    width = 10, height = 6)
+par(mfrow = c(2,4), oma = c(1,1,1,1))
+plot(fvalid, main = 'Fvalid', col= pal)
+plot(fclear_m, main = 'Fclear', col= pal)
+plot(fmean, main = 'Frontal Mean', col= pal)
+plot(fprob, main = 'Frontal Probability', col= pal)
+plot(fvar, main = 'Frontal Variance', col= pal)
+plot(fsd, main = 'Frontal Standard Deviation', col= pal)
+plot(fcv, main = 'Frontal CV', col= pal)
+plot(fintst, main = 'Frontal Intensity', col= pal)
+plot(fpers, main = 'Frontal Persistence', col= pal)
+plot(fpersprob, main = 'Persistence Probability', col = pal)
+dev.off()
+
+
+```
+
+
+
+
+
+
+### MUR
+*Note: there is a problem with the f_clear. MUR is interpolated, so there are
+no cloud days, therefore f_clear is always 100 and messes up the metrics. 
+***NOTE 2: That doesnt make sense- find error
+
+```{r}
+# substitute a single layer (week) to test metric calcs
+sgspr <- r.grad.mur[[21]]
+sfspr <- r.front.mur[[21]]
+sxspr <- r.xcomp.mur[[21]]
+syspr <- r.ycomp.mur[[21]]
+# Metrics
+## Initialize these
+r1 = sxspr # stack of x
+r3 = sfspr # stack of fronts
+r3[r3 <= 0] <- NA # do I need to do this? 
+plot(r.g.21, col = pal, main = 'gradient magnitude')
+plot(r.f.21, col = pal, main = 'fronts (no NA)') # plot the fronts 
+plot(r3, col = pal,  main = 'fronts NA')
+r4 <- raster::mask(r1, r3)
+plot(r4, col = pal, main = 'x based on grad mag')
+r5 = syspr # stack of y
+r6 <- raster::mask(r5, r3)
+plot(r6, col = pal, main = 'y based on grad mag')
+## Base params
+fvalid <- calc(sfspr, fx.sum.greater.than.zero)
+m_sum <- calc(sfspr, fx.sum)
+fclear_m <- calc(sgspr, fx.sum.greater.than.zero)
+# x_var
+x_based_on_mag <- r4
+x_sum <- calc(x_based_on_mag, fx.sum)
+x_sumsqr <- calc(x_based_on_mag, fx.sumsqrs)
+# y_var
+y_based_on_mag <- r6
+y_sum <- calc(y_based_on_mag, fx.sum)
+y_sumsqr <- calc(y_based_on_mag, fx.sumsqrs)
+# Metrics
+fmean = (sqrt((x_sum/fvalid)^2 + (y_sum/fvalid)^2))
+fvar = (x_sumsqr + y_sumsqr)/fvalid
+fsd = sqrt(fvar)
+fcv = fsd/fmean
+fprob = fvalid/fclear_m
+fintst = fmean * fprob
+fpers <- overlay(fsd, fun=rc)
+fpersprob = fpers * fprob
+
+```
+
+Quick visual 
+
+```{r}
+# just checking ...
+plot(fclear_m, main = 'Fclear', col= pal)
+plot(fvalid, main = 'fvalid', col= pal)
+par(mfrow=c(1,3))
+plot(sgspr[[1]], main = 'grad_mag month 1', col= pal)
+plot(sgspr[[2]], main = 'grad_mag month 2', col= pal)
+plot(sgspr[[3]], main = 'grad_mag month 3', col= pal)
+
+range(na.omit(sgspr[[1]]@data@values))
+range(na.omit(sgspr[[2]]@data@values))
+range(na.omit(sgspr[[3]]@data@values))
+
+pdf(file = 'metrics_spring_1990_4km_thresh12.pdf', width = 10, height = 6)
+par(mfrow = c(2,4), oma = c(1,1,1,1))
+plot(fvalid, main = 'fvalid', col= pal)
+plot(fclear_m, main = 'Fclear', col= pal)
+plot(fmean, main = 'Frontal Mean', col= pal)
+plot(fprob, main = 'Frontal Probability', col= pal)
+plot(fvar, main = 'Frontal Variance', col= pal)
+plot(fsd, main = 'Frontal Standard Deviation', col= pal)
+plot(fcv, main = 'Frontal CV', col= pal)
+plot(fintst, main = 'Frontal Intensity', col= pal)
+plot(fpers, main = 'Frontal Persistence', col= pal)
+plot(fpersprob, main = 'Persistence Probability', col = pal)
+dev.off()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

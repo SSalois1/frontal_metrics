@@ -1,0 +1,290 @@
+---
+title: "choosing_frontal_neighborhood"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      warning = FALSE,
+                      message = FALSE)
+```
+
+## R Markdown
+
+
+```{r }
+library(raster)
+library(RColorBrewer)
+library(ncdf4)
+library(wesanderson)
+# library(terra) trying to stick to raster (though it will be depreciated)
+```
+
+
+```{r }
+
+## Color Palette
+# Continuous palette for displaying smoother images
+cols = rev(brewer.pal(11,'RdYlBu'))
+pal <- colorRampPalette(cols)(30)
+
+## Getting files
+## week 20 and 42 are good weeks in modis 
+path = here::here('nc_files/ww')
+# The modis files (WW_) do not have x,y component - just full metrics, 
+# so need to select the W_ for now, which is the 7 daily files for a given week
+files <- list.files(path = path, pattern = glob2rx('W_202120*.nc'), 
+                    full.names = TRUE)
+
+```
+
+
+## Data
+
+Pulling in the data 
+
+### Modis
+```{r}
+## Modis
+
+nc <- nc_open(files[1])  # Open files
+lat <- ncvar_get(nc, 'latitude')
+lon <- ncvar_get(nc, 'longitude')
+grad.m <- ncvar_get(nc, attributes(nc$var)$names[2])
+x.m <- ncvar_get(nc, attributes(nc$var)$names[3])
+y.m <- ncvar_get(nc, attributes(nc$var)$names[4])
+nc_close(nc)
+rm(nc)
+```
+
+
+
+## Stacking rasters 
+
+### Modis 
+
+
+Trying this with raster package: 
+
+
+```{r}
+
+# ## Modis
+# ra.grad.m <- list()
+# ra.xcomp.m <- list()
+# ra.ycomp.m <- list()
+# ra.front.m <- list()
+# #threshold = 0.18 # this is for static threshold method, not focal method
+# # for (i in 1:52){ will need when fixed
+# for (i in 1:7){
+#   tmp.g <- (grad.m[,,i]) 
+#   tmp.gt <- t(tmp.g) 
+#   r.g = raster(tmp.gt, xmn = min(lon), xmx = max(lon), 
+#                ymn = min(lat), ymx = max(lat),
+#                crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+#   r.g = raster::flip(r.g,2)  
+#   #plot(r.g, col = pal)
+#   assign(paste('r.g.',i, sep = ''), r.g)
+#   ra.grad.m[[i]] <- get(paste0('r.g.',i))
+#   tmp.x <- (x.m[,,i]) 
+#   tmp.xt <- t(tmp.x)
+#   r.x = raster(tmp.xt, xmn = min(lon), xmx = max(lon), 
+#                ymn = min(lat), ymx = max(lat),
+#                crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+#   r.x = raster::flip(r.x,2)  
+#   assign(paste('r.x.',i, sep = ''), r.x)
+#   ra.xcomp.m[[i]] <- get(paste0('r.x.',i))
+#   tmp.y <- (y.m[,,i]) 
+#   tmp.yt <- t(tmp.y)
+#   r.y = raster(tmp.yt, xmn = min(lon), xmx = max(lon), 
+#                ymn = min(lat), ymx = max(lat),
+#                crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+#   r.y = raster::flip(r.y,2)  
+#   assign(paste('r.y.',i, sep = ''), r.y)
+#   ra.ycomp.m[[i]] <- get(paste0('r.y.',i))
+#   # Change this to reflect new front detection method
+#   # tmp.f <- (grad.m[,,i])
+#   # tmp.f[tmp.f < threshold] <- 0
+#   # tmp.ft <- t(tmp.f)
+#   # r.f = raster(tmp.ft, xmn = min(lon), xmx = max(lon),
+#   #              ymn = min(lat), ymx = max(lat),
+#   #              crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+#   # r.f = raster::flip(r.f,2)
+#   # plot(r.f, col = pal)
+#   # assign(paste('r.f.',i, sep = ''), r.f)
+#   # ra.front.m[[i]] <- get(paste0('r.f.',i))
+# }
+# 
+
+ra.front.m <- list()
+for (i in 1:7){
+ # This reflects new front detection method
+  i=1
+  tmp.f <- (grad.m[,,i])
+  tmp.ft <- t(tmp.f)
+  r.f = raster(tmp.ft, xmn = min(lon), xmx = max(lon),
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  #r.f.bt = raster::flip(r.f,2)
+  r.f = raster::flip(r.f,2)
+  plot(r.f, col = pal)
+  #plot(r.f.bt, col = pal)
+  r.f.og <- r.f
+  tmp.foc <- raster::focal(r.f, fun=mean, 
+                           na.rm=TRUE, w=matrix(1/9,nrow=3,ncol=3))
+  
+  r.f[r.f >= tmp.foc] <- r.f
+  id_raster_sub <- id_raster[[1]]>2
+  catch_raster_sub <- mask(catch_raster,id_raster_sub/id_raster_sub)
+
+  assign(paste('r.f.',i, sep = ''), r.f)
+  ra.front.m[[i]] <- get(paste0('r.f.',i))
+  
+}
+  #r.f[r.f >= tmp.foc] <- r.f
+  id_raster_sub <- id_raster[[1]]>2
+  catch_raster_sub <- mask(catch_raster,id_raster_sub/id_raster_sub)
+  assign(paste('r.f.',i, sep = ''), r.f)
+  ra.front.m[[i]] <- get(paste0('r.f.',i))
+  
+
+
+# front.stack.f.rasterpackage <- stack(ra.front.m)
+#   r.f.t <- ifelse(r.f <= tmp.foc, 0,r.f)
+#   r.f.t <- r.f <= tmp.foc
+# # remove from r1(stack of x) all values that are NA in r3(stack of fronts)
+# r.f.mask <- raster::mask(r.f,tmp.foc)
+# foc.df <- as.data.frame(tmp.foc, xy = TRUE) # this works with Raster* objects as well
+# foc.df$layer[is.nan(foc.df$layer)]<-NA
+# front.df <- as.data.frame(r.f, xy = TRUE) # this works with Raster* objects as well
+# locs.rm.front <- which(na.omit(front.df$layer) >= na.omit(foc.df$layer))
+# front.df.foc <- front.df[locs.rm.front,]
+# rrr = rasterFromXYZ(front.df.foc)  
+# r.f.subs <- subs(r.f,foc.df)
+
+
+```
+
+
+```{r}
+
+
+tmp.foc2 <- raster::focal(r.f.og, fun = mean, 
+                         na.rm = TRUE, 
+                         w = matrix(1/9, nrow = 3, ncol = 3))
+tmp.foc3 <- raster::focal(r.f.og, fun = median, 
+                          na.rm = TRUE, 
+                          w = matrix(1/9, nrow = 3, ncol = 3))
+
+tmp.foc4 <- raster::focal(r.f.og, fun = mean, 
+                          na.rm = TRUE, 
+                          w = matrix(1/9, nrow = 5, ncol = 5))
+tmp.foc5 <- raster::focal(r.f.og, fun = median, 
+                          na.rm = TRUE, 
+                          w = matrix(1/9, nrow = 5, ncol = 5))
+
+# thresh <- r.f.og >= tmp.foc5
+# fronts <- mask(r.f.og,thresh/thresh)
+# plot(fronts, col = pal)
+# plot(r.f.og)
+# plot(tmp.foc)
+
+```
+
+
+```{r}
+par(mfrow = c(2,2))
+plot(tmp.foc2, main = 'mean focal 3x3', col = pal)
+plot(tmp.foc3, main = 'median focal 3x3', col = pal)
+plot(tmp.foc4, main = 'mean focal 5x5', col = pal)
+plot(tmp.foc5, main = 'median focal 5x5', col = pal)
+```
+
+
+
+
+
+```{r}
+thresh <- r.f.og >= tmp.foc5
+#plot(thresh, col = pal)
+fronts <- mask(r.f.og,thresh/thresh)
+
+par(mfrow = c(2,2))
+plot(r.f.og, main = 'grad mag', col = pal)
+plot(tmp.foc5, main = 'focal stats (sets threshold)', col = pal)
+#plot(tmp.foc3, main = 'larger focal', col = pal)
+plot(thresh, main = 'threshold raster', col = pal)
+plot(fronts, main = 'fronts (grad mad >= threshold', col = pal)
+
+
+```
+
+
+
+
+
+```{r}
+
+tmp.foc.mean <- raster::focal(r.f.og, fun = mean, 
+                         na.rm = TRUE, 
+                         w = matrix(1,3,3))
+
+tmp.foc.median <- raster::focal(r.f.og, fun = median, 
+                         na.rm = TRUE, 
+                          w = matrix(1,3,3))
+r.f.max <- r.f.og
+r.f.max[is.na(r.f.max)] <- 0
+tmp.foc.max <- raster::focal(r.f.max, fun = na.omit(max), 
+                         na.rm = TRUE, 
+                          w = matrix(1,3,3))
+
+par(mfrow = c(2,2))
+plot(r.f.og, main = 'grad mag', col = pal)
+plot(tmp.foc.mean, main = 'focal stats mean', col = pal)
+plot(tmp.foc.median, main = 'focal stats median', col = pal)
+plot(tmp.foc.max, main = 'focal stats max', col = pal)
+
+
+
+
+
+
+```
+
+
+
+
+
+```{r}
+thresh.mean <- r.f.og >= tmp.foc.mean
+fronts.mean <- mask(r.f.og,thresh.mean/thresh.mean)
+thresh.median <- r.f.og >= tmp.foc.median
+fronts.median <- mask(r.f.og,thresh.median/thresh.median)
+thresh.max <- r.f.og >= tmp.foc.max
+thresh.max2 <- r.f.og > tmp.foc.max
+fronts.max <- mask(r.f.og,thresh.max/thresh.max)
+
+thresh = tmp.foc.max/tmp.foc.max
+
+
+par(mfrow = c(2,2))
+plot(r.f.og, main = 'grad mad', col = pal)
+plot(fronts.mean, main = 'fronts (grad mad >= mean', col = pal)
+plot(fronts.median, main = 'fronts (grad mad >= median', col = pal)
+plot(fronts.max, main = 'fronts (grad mad >= max', col = pal)
+plot(thresh.median, col = pal)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
