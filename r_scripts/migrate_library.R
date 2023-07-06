@@ -1,0 +1,7 @@
+installed <- as.data.frame(installed.packages()) 
+write.csv(installed, 'installed_previously.csv')
+baseR <- as.data.frame(installed.packages())
+installedPreviously <- read.csv('installed_previously.csv')
+toInstall <- setdiff(installedPreviously, baseR)
+final.installlist<- as.vector(unlist(toInstall$Package))
+install.packages(final.installlist)

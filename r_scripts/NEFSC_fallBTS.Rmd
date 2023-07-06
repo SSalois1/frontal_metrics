@@ -1,0 +1,140 @@
+---
+title: "Rosefish Survey Attempt"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(tidyverse)
+library(ROracle)
+library(Hmisc)
+library(sf)
+
+```
+
+```{r, name the output file}
+#this is where the cleaned Oracle pull will be saved
+fileout <- here::here('NEFSC_fall_bts_rosefish.csv')
+  
+
+```
+
+```{r}
+######
+#Once packages are loaded, edit your user name and database specifics and run from here down
+#You have to put in your user name
+usr <- c("ssalois")
+#Asks for you pswd in pop up (no need to edit here)
+pswd <- .rs.askForPassword('Password')
+
+#Database specifics
+drv <- dbDriver("Oracle")
+host <- "sole.nefsc.noaa.gov"
+port <- 1526
+sid <- "sole"
+
+#Putting all of that together
+connect.string <- paste(
+  "(DESCRIPTION=",
+  "(ADDRESS=(PROTOCOL=tcp)(HOST=", host, ")(PORT=", port, "))",
+  "(CONNECT_DATA=(SID=", sid, ")))", sep = "")
+
+## Use username/password authentication.
+con <- dbConnect(drv, username = usr, password = pswd,
+                 dbname = connect.string)
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+# importing the data 
+#Pulling in SVDBS data
+UNION_FSCS_SVCAT <- dbGetQuery(con,"select * from SVDBS.UNION_FSCS_SVCAT") #CATCH DATA
+
+UNION_FSCS_SVSTA <- dbGetQuery(con,"select * from SVDBS.UNION_FSCS_SVSTA") #STATION DATA
+
+SVDBS_CRUISES <- dbGetQuery(con,"select * from SVDBS.SVDBS_CRUISES") #CRUISE LIST
+
+```
+
+```{r}
+#Bottom trawl
+
+FALL_BOT_TRAWL <- SVDBS_CRUISES %>% filter(PURPOSE=='NMFS NEFSC BOTTOM TRAWL SURVEY' & SEASON=='FALL') #get the list of cruise numbers that correspond to fall BTS
+
+#get the Illex (svspp 502) catch data from fall BTS cruises
+#summarize the weight and catch by cruise, station, and ID (cruise-stratum-tow-station)
+ILLEX_POSITIVE_TOWS <- UNION_FSCS_SVCAT %>% 
+  filter(CRUISE6 %in% FALL_BOT_TRAWL$CRUISE6) %>%
+  filter(SVSPP == 502) %>% 
+  group_by(CRUISE6,STATION,ID) %>% 
+  summarise(ILLEX_EXPCATCHWT=sum(EXPCATCHWT,na.rm=TRUE),
+            ILLEX_EXPCATCHNUM=sum(EXPCATCHNUM,na.rm=TRUE))
+
+#get catch data from fall BTS cruises
+#filter by the ID numbers that are NOT in the "POSITIVE_TOWS" set
+#group by cruise, station, and ID (cruise-stratum-tow-station) then 
+#assign 0 for weight and number
+ILLEX_NEGATIVE_TOWS <- UNION_FSCS_SVCAT %>% 
+  filter(CRUISE6 %in% FALL_BOT_TRAWL$CRUISE6) %>%
+  filter(ID %nin% ILLEX_POSITIVE_TOWS$ID) %>%
+  group_by(CRUISE6,STATION,ID) %>% 
+  summarise(ILLEX_EXPCATCHWT=0,
+            ILLEX_EXPCATCHNUM=0)
+
+#put the positive and negative tows together into the same dataframe
+ILLEX_COMB <- rbind(ILLEX_POSITIVE_TOWS,ILLEX_NEGATIVE_TOWS)
+
+#Bringing in station data
+ILLEX_STAT_COMB <- ILLEX_COMB %>% left_join(., UNION_FSCS_SVSTA %>% 
+                        dplyr::select(ID,GMT_YEAR,GMT_MONTH,GMT_DAY,GMT_TIME,DECDEG_BEGLAT,DECDEG_BEGLON,DECDEG_ENDLAT,DECDEG_ENDLON,AVGDEPTH,BOTTEMP,BOTSALIN),by=('ID'))
+
+```
+
+```{r, write NEFSC bottom trawl survey data to .csv file}
+write.csv(ILLEX_STAT_COMB, file = fileout, row.names = FALSE)
+
+save.image("NEFSC_fallBTS_2020-01-06.Rdata")
+```
+
+
+```{r}
+#Plotting things out
+ILLEX_STAT_COMB %>% filter(ILLEX_EXPCATCHNUM>0) %>% ggplot() + stat_summary_2d(aes(y=DECDEG_BEGLAT,x=DECDEG_BEGLON,z=ILLEX_EXPCATCHNUM),binwidth = c(0.1666,0.1666)) +
+  coord_sf() + scale_fill_viridis_c()
+
+```
+
+```{r}
+#another plot
+nefsc_s <- ILLEX_STAT_COMB %>% 
+                     filter(is.na(DECDEG_BEGLAT) == FALSE) %>% 
+                     st_as_sf(coords = c("DECDEG_BEGLON", "DECDEG_BEGLAT"), crs = 4362)
+
+ggplot(data = nefsc_s) +
+     geom_polygon(data = reg, aes(x=long, y = lat, group = group), color = "white", fill = "darkgray") + 
+     geom_sf(data = nefsc_s) + 
+     coord_sf(xlim = c(-76,-66), ylim = c(35,45)) + 
+     facet_wrap(~GMT_YEAR)
+```
+
+```{r, look at the positive tows a little closer}
+summary(ILLEX_POSITIVE_TOWS$ILLEX_EXPCATCHNUM)
+quickplot(ILLEX_POSITIVE_TOWS$ILLEX_EXPCATCHNUM
+          , xlab = "Expanded Number", ylab = "Frequency"
+          , main = "Positive Illex Catch Numbers")
+
+summary(subset(ILLEX_POSITIVE_TOWS,ILLEX_EXPCATCHNUM>=17)$ILLEX_EXPCATCHNUM)
+quickplot(subset(ILLEX_POSITIVE_TOWS,ILLEX_EXPCATCHNUM>=17)$ILLEX_EXPCATCHNUM
+          , xlab = "Expanded Number", ylab = "Frequency"
+          , main = "Upper Quartile of Positive Illex Catch Numbers")
+
+nrow(ILLEX_POSITIVE_TOWS)
+nrow(subset(ILLEX_POSITIVE_TOWS, ILLEX_EXPCATCHNUM>=500))
+nrow(subset(ILLEX_POSITIVE_TOWS, ILLEX_EXPCATCHNUM>=1500))
+nrow(subset(ILLEX_POSITIVE_TOWS, ILLEX_EXPCATCHNUM>=2500))
+nrow(subset(ILLEX_POSITIVE_TOWS, ILLEX_EXPCATCHNUM>=3500))
+
+```
+
+
+
