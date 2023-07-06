@@ -12,7 +12,8 @@
 .Rproj.user/
 
 # local folders
-#/nc_files
+/nc_files
+/rasters
 #/results
 #/shape_files
 
