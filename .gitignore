@@ -21,3 +21,4 @@
 # confidental data files
 *.csv.Rproj.user
 #*.nc
+IDL_TEST/.DS_Store
