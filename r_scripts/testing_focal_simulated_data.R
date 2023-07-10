@@ -214,7 +214,7 @@ values(mr)
 # T = (max + min/2)
 thresh <- raster::focal(r, fun = function (x){(max(x)+min(x))/2}, 
                    w = matrix(1,3,3))
-
+matrix(1/9, nc=3, nr=3)
 thresh.mean <- raster::focal(r, fun = mean, 
                    na.rm = TRUE,
                    w = matrix(1,3,3))
@@ -240,11 +240,42 @@ df <- r@data@values
 
 write.csv(df, 'simulated_grad_mag.csv')
 
-
-
+matrix = nrow
+   c(1,2,3)
+m = matrix(1/9, nc=3, nr=3)
+m[1,] <- c(1,2,1)
+m[2,] <- c(2,4,2)
+m[3,] <- c(1,2,1)
 
 # need for mask? r3 = r0/r0 not in these examples
 
+gauss.kern <- m
 
+grad.file <- read.csv(here::here('csv_files/grad_sst_test_data.csv'), header = FALSE)
+grad.file <- as.matrix(grad.file)
+grad <- raster(ncols=100, nrows=100)
+values(grad) <- grad.file
+grad <- flip(grad,2)
+plot(grad, main='Kims grad_sst sim', col = pal)
 
+midrange.fronts <- grad
+midrange.fronts.t2 <- grad
+gauss.fronts <- grad
+## T = (max + min/2)
+thresh <- raster::focal(grad, fun = function (x){(max(x)+min(x))/2}, 
+                        w = matrix(1,5,5))
+plot(thresh, main='Midrange threshold raster', col = pal)
+midrange.fronts[midrange.fronts< 0.4] <- NA
+midrange.fronts.t2[midrange.fronts.t2< 0.7] <- NA
+plot(midrange.fronts, main='Fronts after Midrange threshold applied', 
+     col = pal)
+plot(midrange.fronts.t2, main='Fronts after Midrange threshold applied', 
+     col = pal)
+## T = gaussian
+thresh.g <- raster::focal(grad, fun = function (x){(max(x)+min(x))/2}, 
+                        w = m)
+plot(thresh.g, main='Midrange threshold w/gauss', col = pal)
+gauss.fronts[gauss.fronts< thresh.g] <- NA
+plot(gauss.fronts, main='Fronts after Midrange threshold applied',
+     col = pal)
 

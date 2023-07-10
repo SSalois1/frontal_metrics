@@ -50,6 +50,7 @@ Pulling in the data
 nc <- nc_open(files[1])  # Open files
 lat <- ncvar_get(nc, 'latitude')
 lon <- ncvar_get(nc, 'longitude')
+sst <- ncvar_get(nc, attributes(nc$var)$names[1])
 grad.m <- ncvar_get(nc, attributes(nc$var)$names[2])
 x.m <- ncvar_get(nc, attributes(nc$var)$names[3])
 y.m <- ncvar_get(nc, attributes(nc$var)$names[4])
@@ -281,9 +282,66 @@ plot(thresh.median, col = pal)
 
 
 
+Midrange Threshold on real grad-sst
 
+```{r}
+# ## Modis
+ra.grad.m <- list()
+# ra.xcomp.m <- list()
+# ra.ycomp.m <- list()
+# ra.front.m <- list()
 
+for (i in 1:7){
+  tmp.g <- (grad.m[,,i])
+  tmp.gt <- t(tmp.g)
+  r.g = raster(tmp.gt, xmn = min(lon), xmx = max(lon),
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  r.g = raster::flip(r.g,2)
+  plot(r.g, col = pal)
+  assign(paste('r.g.',i, sep = ''), r.g)
+  ra.grad.m[[i]] <- get(paste0('r.g.',i))
+}
+# sst
+i=2
+ tmp.s <- (sst[,,i])
+  tmp.st <- t(tmp.s)
+  r.s = raster(tmp.st, xmn = min(lon), xmx = max(lon),
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  r.s = raster::flip(r.s,2)
+  plot(r.s, col = pal)
+  
+fronts.t1.r.g.2.9 <- r.g.2
+fronts.t2.r.g.2.9 <- r.g.2
+fronts.old <- r.g.2
 
+## Generate threshold and then apply 
+thresh.part1.9 <- raster::focal(r.g.2, fun = function (x){(max(x)+min(x))/2}, 
+                        w = matrix(1,9,9))
+fronts.t1.r.g.2.9[fronts.t1.r.g.2.9 < thresh.part1.9] <- NA
+range(na.omit(thresh.part1.9@data@values))
+
+## Set up secondary filtration 
+thresh.part2.9 <- median(na.omit(thresh.part1.9@data@values))
+fronts.t2.r.g.2.9[fronts.t2.r.g.2.9 < thresh.part2.9] <- NA
+fronts.old[fronts.old < 0.15] <- NA
+## note: I added .9 to reduce the neighborhood size
+# Plot all to see 
+plot(r.s, main='SST, 2021 wk 20', col = pal) # sst 
+plot(r.g.2, main='Grad SST, 2021 wk 20', col = pal) # grad
+plot(thresh.part1.9, main='Midrange threshold, step 1', col = pal)
+plot(thresh.part2, main='Midrange threshold, step 2', col = pal)
+plot(fronts.t1.r.g.2, main='Fronts after Midrange threshold, step 1', 
+     col = pal)
+plot(fronts.t2.r.g.2, main='Fronts after Midrange threshold, step 2', 
+     col = pal)
+plot(fronts.old, col = pal, main = 'Our arbitraty threshold we originially chose for our region')
+plot(fronts.t1.r.g.2.9, main='Fronts after Midrange threshold, step 1 (9x9)', 
+     col = pal)
+plot(fronts.t2.r.g.2.9, main='Fronts after Midrange threshold, step 2 (9x9)', 
+     col = pal)
+```
 
 
 
