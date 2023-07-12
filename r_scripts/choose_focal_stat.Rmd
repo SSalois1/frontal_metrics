@@ -27,6 +27,7 @@ library(wesanderson)
 # Continuous palette for displaying smoother images
 cols = rev(brewer.pal(11,'RdYlBu'))
 pal <- colorRampPalette(cols)(30)
+jet.colors <-colorRampPalette(c("blue", "#007FFF", "cyan","#7FFF7F", "yellow", "#FF7F00", "red", "#7F0000"))
 
 ## Getting files
 ## week 20 and 42 are good weeks in modis 
@@ -388,7 +389,7 @@ sst.r = raster::flip(sst.r,2)
  
 
 # Grad Mag
-tmp.grad <- grad.ac[,,1]
+tmp.grad <- grad.ac[,,20]
 tmp.grad <- t(tmp.grad)
 grad.r = raster(tmp.grad, xmn = min(lon), xmx = max(lon),
                ymn = min(lat), ymx = max(lat),
@@ -473,9 +474,9 @@ xcomp <- list()
 ycomp <- list()
 front.p1 <- list()
 front.p2 <- list()
-front.oldthresh <- list()
+#front.oldthresh <- list()
 # going to try days 136:142 hoping this week of may 16 2021, day 136(Sun) 137 (Mon)
-for (i in 1:7){
+for (i in 136:143){
   tmp.g <- (grad.dd[,,i]) # iterating through each day of week 20
   tmp.gt <- t(tmp.g)
   r.g = raster(tmp.gt, xmn = min(lon), xmx = max(lon),
@@ -503,24 +504,24 @@ for (i in 1:7){
   ycomp[[i]] <- get(paste0('r.y.',i))
   ## This reflects new 2-step dynamic local front detection method
   tmp.fp1 <- r.g   # (grad.dd[,,i]) # setting up grad_mag raster for 1st filter
-  tmp.fp2 <- r.g # setting up gradient_mag raster for second filter 
-  fronts.old <- r.g
+  tmp.fp2 <- r.g  # setting up gradient_mag raster for second filter 
+ # fronts.old <- r.g
   thresh.part1.9 <- raster::focal(r.g, fun = function (x){(max(x)+min(x))/2}, 
-                        w = matrix(1,9,9)) # change 9 to 15, not changing names
+                        w = matrix(1,15,15)) # change 9 to 15, not changing names
   tmp.fp1[tmp.fp1 < thresh.part1.9] <- NA
   # range(na.omit(thresh.part1.9@data@values)) # checking values
   ## Set up secondary filtration 
   thresh.part2.9 <- median(na.omit(thresh.part1.9@data@values))
   tmp.fp2[tmp.fp2 < thresh.part2.9] <- NA
   # Compare to old
-  fronts.old[fronts.old < 0.18] <- NA
-  #plot(r.f, col = pal)
+  # fronts.old[fronts.old < 0.18] <- NA
+  # plot(r.f, col = pal)
   assign(paste('r.f1.',i, sep = ''), tmp.fp1)
   assign(paste('r.f2.',i, sep = ''), tmp.fp2)
-  assign(paste('r.fold.',i, sep = ''), fronts.old)
+  # assign(paste('r.fold.',i, sep = ''), fronts.old)
   front.p1[[i]] <- get(paste0('r.f1.',i))
   front.p2[[i]] <- get(paste0('r.f2.',i))
-  front.oldthresh[[i]] <- get(paste0('r.fold.',i))
+  # front.oldthresh[[i]] <- get(paste0('r.fold.',i))
 }
 
 # will need to stack the raster layers in each list
@@ -529,6 +530,7 @@ for (i in 1:7){
 
 Plotting to check before I start metrics
 
+9 x 9 kernel 
 ```{r}
 plot(r.g, main='Grad Mag ACSPO 2021', col = pal) # grad
 plot(r.f1.136, main='Fronts after Midrange threshold, step 1 (9x9)', 
@@ -539,6 +541,150 @@ plot(fronts.old, col = pal,
      main = 'Our arbitraty threshold we originially chose for our region')
 
 ```
+
+
+15 x 15 kernel 
+
+```{r}
+plot(r.g, main='Grad Mag ACSPO 2021', col = pal) # grad
+plot(r.f1.136, main='Fronts after Midrange threshold, step 1 (15x15)', 
+     col = jet.colors(30))
+plot(r.f2.136, main='Fronts after Midrange threshold, step 2 (15x15)', 
+     col = pal)
+plot(fronts.old, col = pal, 
+     main = 'Our arbitraty threshold we originially chose for our region')
+
+```
+
+## Stacking 
+Need to stack the images by temporal resolution of interest
+
+```{r}
+
+# -- stack static threshold -- # 
+grad.stack <- raster::stack(grad[136:143])
+front.stack <- raster::stack(front.p2[136:143])
+x.stack<- raster::stack(xcomp[136:143])
+y.stack <- raster::stack(ycomp[136:143])
+
+
+# Cleaning up environment - too many large files 
+rm(list = grep("tmp", ls(), value = TRUE))
+rm(list = grep("r.x.", ls(), value = TRUE))
+rm(list = grep("r.g.", ls(), value = TRUE))
+rm(list = grep("r.y.", ls(), value = TRUE))
+rm(list = grep("r.f.", ls(), value = TRUE))
+
+
+```
+
+
+
+```{r}
+## Functions
+fx.sum.greater.than.zero <- function(x) sum(na.omit(x > 0))
+fx.sum <- function(x) sum(na.omit(x))
+fx.sumsqrs <- function(x) {sum((na.omit(x) - mean(na.omit(x)))^2)}
+# create an if-else reclassify statement
+rc <- function(x1) {
+  ifelse(x1 <= pers_thresh, 1, 
+         ifelse((x1 > pers_thresh), 0))
+}
+```
+
+
+```{r}
+# Metrics
+
+# Set threshold for low temporal variability 
+#pers_thresh <- 0.08 # original 
+pers_thresh <- 0.3
+## Initialize these
+r1 = x.stack # stack of x
+r3 = front.stack # stack of fronts
+# r3[r3 <= 0] <- NA # do I need to do this? - yes for mask*, not with new front rasters
+# plot(r3, col = jet.colors(5),  main = 'fronts NA')
+# remove from r1(stack of x) all values that are NA in r3(stack of fronts)
+r4 <- raster::mask(r1, r3)
+#plot(r4, col = jet.colors(5), main = 'x based on grad mag')
+r5 = y.stack # stack of y
+r6 <- raster::mask(r5, r3)
+plot(r6, col = pal, main = 'y based on grad mag')
+## Base params
+fvalid <- calc(front.stack, fx.sum.greater.than.zero)
+m_sum <- calc(front.stack, fx.sum)
+fclear_m <- calc(grad.stack, fx.sum.greater.than.zero)
+# x_var
+x_based_on_mag <- r4
+x_sum <- calc(x_based_on_mag, fx.sum)
+x_sumsqr <- calc(x_based_on_mag, fx.sumsqrs)
+# y_var
+y_based_on_mag <- r6
+y_sum <- calc(y_based_on_mag, fx.sum)
+y_sumsqr <- calc(y_based_on_mag, fx.sumsqrs)
+# Metrics
+fmean = (sqrt((x_sum/fvalid)^2 + (y_sum/fvalid)^2))
+fvar = (x_sumsqr + y_sumsqr)/fvalid
+fsd = sqrt(fvar)
+fcv = fsd/fmean
+fprob = fvalid/fclear_m
+fintst = fmean * fprob
+fpers <- overlay(fsd, fun=rc)
+fpersprob = fpers * fprob
+```
+
+Plotting metrics using focal threshold with raster package instead of terra
+
+```{r}
+
+pdf(file = 'metrics_focal_front_wk_20_2021_acspo_sst.pdf',
+    width = 10, height = 6)
+par(mfrow = c(2,5), oma = c(1,1,1,1))
+plot(grad.r, main = 'ACSPO GRAD MAG', col = jet.colors(25))
+plot(fvalid, main = 'Fvalid', col= jet.colors(20))
+plot(fclear_m, main = 'Fclear', col= jet.colors(20))
+plot(fmean, main = 'Frontal Mean', col= jet.colors(25))
+plot(fprob, main = 'Frontal Probability', col= jet.colors(25))
+plot(fvar, main = 'Frontal Variance', col= jet.colors(25))
+plot(fsd, main = 'Frontal Standard Deviation', col= jet.colors(25))
+plot(fcv, main = 'Frontal CV', col= jet.colors(25))
+plot(fintst, main = 'Frontal Intensity', col= jet.colors(20))
+plot(fpers, main = 'Frontal Persistence', col= jet.colors(25))
+plot(fpersprob, main = 'Persistence Probability', col = jet.colors(25))
+dev.off()
+
+
+```
+
+
+
+```{r}
+range(na.omit(fsd@data@values))
+
+# pers_thresh <- 0.3
+# fpers <- overlay(fsd, fun=rc)
+# fpersprob = fpers * fprob
+plot(fpers, main = 'Frontal Persistence', col= jet.colors(25))
+plot(fpersprob, main = 'Persistence Probability', col = jet.colors(25))
+plot(fprob, main = 'Frontal Probability', col= jet.colors(25))
+
+
+```
+
+
+
+```{r}
+pdf(file = 'persprob_focal_front_wk_20_2021_acspo_sst.pdf',
+    width = 6, height = 8)
+par(mfrow = c(2,1), oma = c(1,1,1,1))
+plot(fprob, main = 'Frontal Probability', col= jet.colors(25))
+plot(fpersprob, main = 'Persistence Probability, thresh = 0.3', col = jet.colors(25))
+dev.off()
+
+```
+
+
+
 
 
 

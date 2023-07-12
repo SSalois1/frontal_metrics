@@ -1,5 +1,6 @@
 library(ncdf4)
 library(raster)
+jet.colors <-colorRampPalette(c("blue", "#007FFF", "cyan","#7FFF7F", "yellow", "#FF7F00", "red", "#7F0000"))
 setwd('~/github/ssalois1/frontal_metrics/nc_files/ww')
 nc25 <- nc_open('W_202125-AT-R2018-NESGRID-GRAD_SST-BOA-STACKED.nc')
 nc26 <- nc_open('W_202126-AT-R2018-NESGRID-GRAD_SST-BOA-STACKED.nc')
