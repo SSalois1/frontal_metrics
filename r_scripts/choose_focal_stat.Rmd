@@ -661,9 +661,9 @@ dev.off()
 ```{r}
 range(na.omit(fsd@data@values))
 
-# pers_thresh <- 0.3
-# fpers <- overlay(fsd, fun=rc)
-# fpersprob = fpers * fprob
+pers_thresh <- 0.5
+fpers <- overlay(fsd, fun=rc)
+fpersprob = fpers * fprob
 plot(fpers, main = 'Frontal Persistence', col= jet.colors(25))
 plot(fpersprob, main = 'Persistence Probability', col = jet.colors(25))
 plot(fprob, main = 'Frontal Probability', col= jet.colors(25))
@@ -674,11 +674,11 @@ plot(fprob, main = 'Frontal Probability', col= jet.colors(25))
 
 
 ```{r}
-pdf(file = 'persprob_focal_front_wk_20_2021_acspo_sst.pdf',
+pdf(file = 'persprob_focal_front_wk_20_2021_acspo_sst_highthresh.pdf',
     width = 8, height = 5)
 par(mfrow = c(1,2), oma = c(1,1,1,1), mar = c(2, 3, 3, 2))
 plot(fprob, main = 'Frontal Probability', col= jet.colors(25))
-plot(fpersprob, main = 'Persistence Probability, thresh = 0.3', col = jet.colors(25))
+plot(fpersprob, main = 'Persistence Probability, thresh = 0.5', col = jet.colors(25))
 dev.off()
 
 ```
