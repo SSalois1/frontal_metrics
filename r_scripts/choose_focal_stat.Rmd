@@ -346,3 +346,200 @@ plot(fronts.t2.r.g.2.9, main='Fronts after Midrange threshold, step 2 (9x9)',
 
 
 
+
+
+Testing on a new data set - ACSPO
+```{r}
+# Pull in data file from the ACSPO SST 
+nc <- nc_open(here::here('nc_files/ww/WW_202101_202152-ACSPO-V2.0-NESGRID-GRAD_SST-BOA-STACKED_STATS.nc'))  # Open files
+lat <- ncvar_get(nc, 'latitude')
+lon <- ncvar_get(nc, 'longitude')
+sst.ac <- ncvar_get(nc, attributes(nc$var)$names[4])
+grad.ac <- ncvar_get(nc, attributes(nc$var)$names[1])
+x.ac <- ncvar_get(nc, attributes(nc$var)$names[2])
+y.ac <- ncvar_get(nc, attributes(nc$var)$names[3])
+nc_close(nc)
+rm(nc)
+
+```
+
+```{r}
+image(sst.ac[,,1])
+image(sst.ac[,,2])
+image(sst.ac[,,14])
+image(sst.ac[,,35])
+image(sst.ac[,,41])
+image(sst.ac[,,51])
+```
+
+
+
+
+```{r}
+# select one day and create a raster for testing thresholds
+# SST for comparison 
+tmp.sst <- sst.ac[,,1]
+tmp.sst <- t(tmp.sst)
+sst.r = raster(tmp.sst, xmn = min(lon), xmx = max(lon),
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+sst.r = raster::flip(sst.r,2)
+
+ 
+
+# Grad Mag
+tmp.grad <- grad.ac[,,1]
+tmp.grad <- t(tmp.grad)
+grad.r = raster(tmp.grad, xmn = min(lon), xmx = max(lon),
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+grad.r = raster::flip(grad.r,2)
+  
+ 
+
+  
+plot(sst.r, col = pal, main = 'ACSPO SST')
+plot(grad.r, col = pal, main = 'ACSPO GRAD MAG')
+  
+```
+
+
+Testing threshold: 
+
+
+```{r}
+## Generate threshold and then apply 
+
+fronts.part1.acspo <- grad.r
+fronts.part2.acspo <- grad.r
+fronts.old <- grad.r
+
+thresh.part1.9 <- raster::focal(grad.r, fun = function (x){(max(x)+min(x))/2}, 
+                        w = matrix(1,9,9))
+fronts.part1.acspo[fronts.part1.acspo < thresh.part1.9] <- NA
+range(na.omit(thresh.part1.9@data@values))
+
+## Set up secondary filtration 
+thresh.part2.9 <- median(na.omit(thresh.part1.9@data@values))
+fronts.part2.acspo[fronts.part2.acspo < thresh.part2.9] <- NA
+fronts.old[fronts.old < 0.15] <- NA
+```
+
+
+```{r}
+## note: any object with a .9 is the 9x9 neighborhood size
+# Plot all to see 
+plot(sst.r, main='SST ACSPO 2021', col = pal) # sst 
+plot(grad.r, main='Grad Mag ACSPO 2021', col = pal) # grad
+plot(thresh.part1.9, main='Midrange threshold, step 1', col = pal)
+# plot(thresh.part2, main='Midrange threshold, step 2', col = pal)
+# plot(fronts.part1.acspo, main='Fronts after Midrange threshold, step 1', 
+#      col = pal)
+# plot(fronts.part2.acspo, main='Fronts after Midrange threshold, step 2', 
+#      col = pal)
+plot(fronts.part1.acspo, main='Fronts after Midrange threshold, step 1 (9x9)', 
+     col = pal)
+plot(fronts.part2.acspo, main='Fronts after Midrange threshold, step 2 (9x9)', 
+     col = pal)
+plot(fronts.old, col = pal, 
+     main = 'Our arbitraty threshold we originially chose for our region')
+
+```
+
+
+Daily - stack these and perform metrics
+
+
+```{r}
+# Pull in data file from the ACSPO SST 
+nc <- nc_open(here::here('nc_files/dd/DD_20210101_20211231-ACSPO-V2.0-NESGRID-GRAD_SST-BOA.nc'))  # Open files
+lat <- ncvar_get(nc, 'latitude')
+lon <- ncvar_get(nc, 'longitude')
+grad.dd <- ncvar_get(nc, attributes(nc$var)$names[1])
+x.dd <- ncvar_get(nc, attributes(nc$var)$names[2])
+y.dd <- ncvar_get(nc, attributes(nc$var)$names[3])
+#sst.ac <- ncvar_get(nc, attributes(nc$var)$names[4]) ## SST not in these files
+nc_close(nc)
+rm(nc)
+```
+
+
+Prep data to run metrics - trying on just one week of daily data
+
+```{r}
+## ACSPO SST
+grad <- list()
+xcomp <- list()
+ycomp <- list()
+front.p1 <- list()
+front.p2 <- list()
+front.oldthresh <- list()
+# going to try days 136:142 hoping this week of may 16 2021, day 136(Sun) 137 (Mon)
+for (i in 1:7){
+  tmp.g <- (grad.dd[,,i]) # iterating through each day of week 20
+  tmp.gt <- t(tmp.g)
+  r.g = raster(tmp.gt, xmn = min(lon), xmx = max(lon),
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  r.g = raster::flip(r.g,2)
+  #plot(r.g, col = pal)
+  assign(paste('r.g.',i, sep = ''), r.g)
+  grad[[i]] <- get(paste0('r.g.',i)) # storing this in a list to stack later
+  tmp.x <- (x.dd[,,i]) 
+  tmp.xt <- t(tmp.x)
+  r.x = raster(tmp.xt, xmn = min(lon), xmx = max(lon),
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  r.x = raster::flip(r.x,2)
+  assign(paste('r.x.',i, sep = ''), r.x)
+  xcomp[[i]] <- get(paste0('r.x.',i))
+  tmp.y <- (y.dd[,,i])
+  tmp.yt <- t(tmp.y)
+  r.y = raster(tmp.yt, xmn = min(lon), xmx = max(lon),
+               ymn = min(lat), ymx = max(lat),
+               crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+  r.y = raster::flip(r.y,2)
+  assign(paste('r.y.',i, sep = ''), r.y)
+  ycomp[[i]] <- get(paste0('r.y.',i))
+  ## This reflects new 2-step dynamic local front detection method
+  tmp.fp1 <- r.g   # (grad.dd[,,i]) # setting up grad_mag raster for 1st filter
+  tmp.fp2 <- r.g # setting up gradient_mag raster for second filter 
+  fronts.old <- r.g
+  thresh.part1.9 <- raster::focal(r.g, fun = function (x){(max(x)+min(x))/2}, 
+                        w = matrix(1,9,9)) # change 9 to 15, not changing names
+  tmp.fp1[tmp.fp1 < thresh.part1.9] <- NA
+  # range(na.omit(thresh.part1.9@data@values)) # checking values
+  ## Set up secondary filtration 
+  thresh.part2.9 <- median(na.omit(thresh.part1.9@data@values))
+  tmp.fp2[tmp.fp2 < thresh.part2.9] <- NA
+  # Compare to old
+  fronts.old[fronts.old < 0.18] <- NA
+  #plot(r.f, col = pal)
+  assign(paste('r.f1.',i, sep = ''), tmp.fp1)
+  assign(paste('r.f2.',i, sep = ''), tmp.fp2)
+  assign(paste('r.fold.',i, sep = ''), fronts.old)
+  front.p1[[i]] <- get(paste0('r.f1.',i))
+  front.p2[[i]] <- get(paste0('r.f2.',i))
+  front.oldthresh[[i]] <- get(paste0('r.fold.',i))
+}
+
+# will need to stack the raster layers in each list
+
+```
+
+Plotting to check before I start metrics
+
+```{r}
+plot(r.g, main='Grad Mag ACSPO 2021', col = pal) # grad
+plot(r.f1.136, main='Fronts after Midrange threshold, step 1 (9x9)', 
+     col = pal)
+plot(r.f2.136, main='Fronts after Midrange threshold, step 2 (9x9)', 
+     col = pal)
+plot(fronts.old, col = pal, 
+     main = 'Our arbitraty threshold we originially chose for our region')
+
+```
+
+
+
+
